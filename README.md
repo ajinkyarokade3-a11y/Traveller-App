@@ -3,7 +3,7 @@
 Traveller-facing Vite/React application. It communicates with WanderAI-Backend through `VITE_API_BASE_URL`.
 
 
-. Project Overview
+#1. Project Overview
 What TourFlow AI Does
 TourFlow AI is a dual-sided travel orchestration platform bridging individual travelers with commercial tour operators. It combines generative AI models (Google Gemini) with strict algorithmic validation to deliver hyper-tailored multi-day travel itineraries, verified real-world transport routes, live dynamic destination visuals, and automated disruption replanning.
 
@@ -17,7 +17,11 @@ Dual-Portal Synchronization: Instant bi-directional state sync between Traveler 
 Interactive Multi-Day Mapping: Leaflet-powered maps featuring day-by-day route paths, pinpoint markers for hotels and activities, and transit hub links.
 Dynamic Backdrop Engine: Responsive ambient video/image backdrops matching the destination and time of day.
 Client-Side PDF Generation: Vector-grade, multi-page branded travel voucher and itinerary export with jsPDF.
+
+
 2. User Journeys
+
+   
 A. Traveler Journey
 [ Discover ] ──▶ [ Personalize ] ──▶ [ Plan ] ──▶ [ Explore / Compare ] ──▶ [ Price ]
       │
@@ -36,7 +40,11 @@ Operate: Follow day-by-day schedule with live route maps and location coordinate
 Assist: Use the in-app Gemini AI Travel Concierge for immediate local advice, food recommendations, and packing tips.
 Adapt: Receive immediate alert banners if a disruption occurs, reviewing proposed alternative activities or accommodations.
 Complete & Review: Submit ratings and feedback to refine future recommendation scoring.
+
+
 B. Operator Journey
+
+
 [ Login ] ──▶ [ Dashboard Overview ] ──▶ [ Trip Requests Queue ] ──▶ [ Trip Workspace ]
       │
       ▼
