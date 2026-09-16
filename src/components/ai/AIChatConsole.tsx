@@ -8,13 +8,17 @@ import {
   Share2, Printer, CheckCircle2, AlertTriangle, Star, History,
   Sliders, MessageSquare, Compass, X, ArrowRight, Eye, RefreshCcw,
   Plane, Train, Bus, ExternalLink, ShieldCheck, Clock, Tag, ArrowLeftRight,
-  Camera, Sun, CloudSun, Maximize2, Download, EyeOff, Plus, Minus, Trash2, SlidersVertical
+  Camera, Sun, CloudSun, Maximize2, Download, EyeOff, Plus, Minus, Trash2, SlidersVertical,
+  FolderOpen, CloudUpload, LogIn, LogOut, User
 } from 'lucide-react';
 import { TourFlowApi } from '../../services/api';
+import { useTravelerAuth } from '../../store/useTravelerAuth';
+import TravelerMyTrips from '../trip/TravelerMyTrips';
 import { Trip, Destination, TripPreference, ItineraryItem, TransportBookingOption, AccommodationOption, PossibleOptionItem, SerpApiHotelResult } from '../../types/tourflow';
 import { SmartImage } from '../common/SmartImage';
 import { TripInteractiveMap } from '../map/TripInteractiveMap';
 import { PossibleOptionsTray } from './PossibleOptionsTray';
+import { TripConfirmPanel } from '../trip/TripConfirmPanel';
 import { getDestinationPhotos, getActivityPhoto, DESTINATION_PHOTO_CATALOG } from '../../assets/imageCatalog';
 import { isInvalidDestination, parseBudget, parseDateRange } from '../../utils/validation';
 import { exportTripToPDF } from '../../utils/pdfExport';
@@ -27,6 +31,8 @@ interface AIChatConsoleProps {
   initialDestination?: string;
   initialDuration?: string;
   initialPayload?: any;
+  initialTrip?: Trip | null;
+  onInitialTripConsumed?: () => void;
   destinations?: Destination[];
   onAutoFillTrip?: (extracted: Record<string, any>) => void;
   onNavigateToWorkspace?: () => void;
@@ -53,6 +59,8 @@ export default function AIChatConsole({
   initialDestination,
   initialDuration,
   initialPayload,
+  initialTrip,
+  onInitialTripConsumed,
   destinations = [],
   onAutoFillTrip, 
   onNavigateToWorkspace,
@@ -211,6 +219,57 @@ export default function AIChatConsole({
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [pendingExitTarget, setPendingExitTarget] = useState<'home' | 'workspace' | null>(null);
 
+  // Traveler account (My Trips persistence in the MAIN TourFlow flow)
+  const travelerUser = useTravelerAuth((s) => s.user);
+  const openAuthModal = useTravelerAuth((s) => s.openAuthModal);
+  const travelerLogout = useTravelerAuth((s) => s.logout);
+  const [myTripsOpen, setMyTripsOpen] = useState(false);
+  const [savedTripIds, setSavedTripIds] = useState<string[]>([]);
+  const [isSavingTrip, setIsSavingTrip] = useState(false);
+
+  const showToast = (msg: string, ms = 4000) => {
+    setTripUpdateToast(msg);
+    window.setTimeout(() => {
+      setTripUpdateToast((current) => (current === msg ? null : current));
+    }, ms);
+  };
+
+  const markTripSaved = (tripId: string) => {
+    setSavedTripIds((prev) => (prev.includes(tripId) ? prev : [...prev, tripId]));
+  };
+
+  // Claim the current console trip into the traveler's account (anonymous
+  // trips, or retry after a failed auto-save). Upsert: never duplicates.
+  const handleSaveGeneratedTrip = async () => {
+    if (!generatedTrip || isSavingTrip) return;
+    if (!travelerUser) {
+      openAuthModal('signup');
+      return;
+    }
+    setIsSavingTrip(true);
+    try {
+      await TourFlowApi.saveMyTrip(generatedTrip);
+      markTripSaved(generatedTrip.id);
+      showToast('Saved to My Trips — reopen it anytime after signing back in.');
+    } catch (err: any) {
+      showToast(err?.message || 'Could not save this trip.');
+    } finally {
+      setIsSavingTrip(false);
+    }
+  };
+
+  // Open a persisted snapshot: restore into the engine, never regenerate.
+  const handleOpenSavedTrip = (trip: Trip) => {
+    setGeneratedTrip(trip);
+    if (trip.packing_items) setPackingItems(trip.packing_items);
+    if (trip.expenses) setExpenses(trip.expenses);
+    setWorkspaceState('generated');
+    setMobileTab('trip');
+    setMyTripsOpen(false);
+    markTripSaved(trip.id);
+    showToast('Trip restored from My Trips.');
+  };
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const hasInitializedPrompt = useRef(false);
@@ -227,6 +286,24 @@ export default function AIChatConsole({
   }, [initialDestination, initialDuration]);
 
   const hasHandledPayload = useRef(false);
+  const handledInitialTripId = useRef<string | null>(null);
+
+  // Trip restored from My Trips (already persisted + rehydrated): display it
+  // directly. Never regenerate here.
+  useEffect(() => {
+    if (initialTrip && initialTrip.id && handledInitialTripId.current !== initialTrip.id) {
+      handledInitialTripId.current = initialTrip.id;
+      setGeneratedTrip(initialTrip);
+      if (initialTrip.packing_items) setPackingItems(initialTrip.packing_items);
+      if (initialTrip.expenses) setExpenses(initialTrip.expenses);
+      setWorkspaceState('generated');
+      setMobileTab('trip');
+      markTripSaved(initialTrip.id);
+      showToast('Trip restored from My Trips.');
+      onInitialTripConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTrip]);
 
   // Initial payload handoff from "Generate Itinerary with WanderFlow AI"
   useEffect(() => {
@@ -626,6 +703,11 @@ export default function AIChatConsole({
       setTimeout(() => {
         setGeneratedTrip(createdTrip);
         setWorkspaceState('generated');
+
+        if (createdTrip.persistedToAccount) {
+          markTripSaved(createdTrip.id);
+          showToast('Itinerary generated and saved to My Trips.');
+        }
 
         setMessages((prev) => [
           ...prev,
@@ -1168,6 +1250,11 @@ You can select any option or lock it in via AI Guide or direct self-booking!`,
         setGeneratedTrip(newTrip);
         setWorkspaceState('generated');
 
+        if (newTrip.persistedToAccount) {
+          markTripSaved(newTrip.id);
+          showToast('Itinerary generated and saved to My Trips.');
+        }
+
         setMessages((prev) => [
           ...prev,
           {
@@ -1505,6 +1592,67 @@ You can select any option or lock it in via AI Guide or direct self-booking!`,
             </button>
           )}
 
+          {/* My Trips (persistent account trips; restore, never regenerate) */}
+          <button
+            onClick={() => setMyTripsOpen(true)}
+            className="px-3.5 py-1.5 rounded-full border border-stone-200 hover:border-stone-400 bg-white text-xs font-bold text-stone-800 flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-95"
+            title="Open My Trips"
+          >
+            <FolderOpen className="w-3.5 h-3.5 text-[#7065F0]" />
+            <span className="hidden sm:inline">My Trips</span>
+          </button>
+
+          {/* Save the current itinerary to the traveler's account */}
+          {workspaceState === 'generated' && generatedTrip && travelerUser && !savedTripIds.includes(generatedTrip.id) && (
+            <button
+              onClick={handleSaveGeneratedTrip}
+              disabled={isSavingTrip}
+              className="px-3.5 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer active:scale-95 disabled:opacity-60"
+              title="Save this trip to My Trips"
+            >
+              <CloudUpload className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{isSavingTrip ? 'Saving…' : 'Save Trip'}</span>
+            </button>
+          )}
+          {workspaceState === 'generated' && generatedTrip && travelerUser && savedTripIds.includes(generatedTrip.id) && (
+            <span
+              className="px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold hidden sm:inline-flex items-center gap-1.5"
+              title="This trip is saved to your account"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Saved</span>
+            </span>
+          )}
+
+          {/* Traveler account */}
+          {travelerUser ? (
+            <div className="flex items-center gap-2">
+              <span
+                title={travelerUser.email}
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-stone-100 border border-stone-200 text-stone-700 text-xs font-bold max-w-[150px]"
+              >
+                <User className="w-3.5 h-3.5 text-[#7065F0] shrink-0" />
+                <span className="truncate">{travelerUser.full_name}</span>
+              </span>
+              <button
+                onClick={travelerLogout}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full border border-stone-200 hover:border-stone-400 flex items-center justify-center text-stone-700 hover:text-stone-950 transition-all cursor-pointer bg-stone-50"
+                title="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => openAuthModal('login')}
+              className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-rose-500 via-orange-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm shadow-rose-500/20 cursor-pointer active:scale-95"
+              title="Sign in to save trips"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sign In</span>
+            </button>
+          )}
+
           <button
             onClick={() => handleRequestExit('workspace')}
             className="w-8 h-8 sm:w-9 sm:h-9 rounded-full border border-stone-200 hover:border-stone-400 flex items-center justify-center text-stone-700 hover:text-stone-950 transition-all cursor-pointer bg-stone-50"
@@ -1514,6 +1662,14 @@ You can select any option or lock it in via AI Guide or direct self-booking!`,
           </button>
         </div>
       </header>
+
+      {/* My Trips slide-over (mounted once; store-driven auth modal lives in App) */}
+      <TravelerMyTrips
+        open={myTripsOpen}
+        onClose={() => setMyTripsOpen(false)}
+        onOpenTrip={handleOpenSavedTrip}
+        currentTripId={generatedTrip?.id || null}
+      />
 
       {/* Live Toast for AI modifications */}
       <AnimatePresence>
@@ -2461,6 +2617,12 @@ You can select any option or lock it in via AI Guide or direct self-booking!`,
                         setSwapActivityModal({ isOpen: true, item: firstItem });
                       }
                     }}
+                  />
+
+                  {/* Traveler Review & Confirm (same confirmation flow) */}
+                  <TripConfirmPanel
+                    trip={generatedTrip}
+                    onConfirmed={(updated) => setGeneratedTrip(updated)}
                   />
                 </div>
               )}
