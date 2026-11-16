@@ -4,7 +4,7 @@ Traveller-facing Vite/React application. It communicates with WanderAI-Backend t
 
 ## 1. Project Overview
 
-### What TourFlow AI Does
+### What  WanderAI Does
 WanderAI is a dual-sided travel orchestration platform bridging individual travelers with commercial tour operators. It combines generative AI models (Google Gemini) with strict algorithmic validation to deliver hyper-tailored multi-day travel itineraries, verified real-world transport routes, live dynamic destination visuals, and automated disruption replanning.
 
 ### Problem It Solves
